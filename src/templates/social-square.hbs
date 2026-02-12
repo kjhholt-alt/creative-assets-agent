@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link href="https://fonts.googleapis.com/css2?family={{fonts.heading}}:wght@{{fonts.headingWeight}}&family={{fonts.body}}:wght@{{fonts.bodyWeight}}&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: {{width}}px;
+      height: {{height}}px;
+      background: {{colors.background}};
+      font-family: '{{fonts.body}}', sans-serif;
+      color: {{colors.text}};
+      overflow: hidden;
+      position: relative;
+    }
+
+    .bg {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(
+        {{style.gradientDirection}},
+        {{colors.background}},
+        {{colors.surface}}
+      );
+    }
+
+    {{#if style.glowEffects}}
+    .glow {
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      border-radius: 50%;
+      filter: blur(150px);
+      opacity: 0.2;
+    }
+    .glow-primary {
+      top: -200px;
+      left: -100px;
+      background: {{colors.primary}};
+    }
+    .glow-accent {
+      bottom: -200px;
+      right: -100px;
+      background: {{colors.accent}};
+    }
+    {{/if}}
+
+    .content {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      height: 100%;
+      padding: 80px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 8px 20px;
+      background: {{colors.primary}}20;
+      border: 1px solid {{colors.primary}}40;
+      color: {{colors.primary}};
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      border-radius: 100px;
+      margin-bottom: 32px;
+    }
+
+    .title {
+      font-family: '{{fonts.heading}}', sans-serif;
+      font-weight: {{fonts.headingWeight}};
+      font-size: 64px;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      max-width: 800px;
+    }
+
+    .divider {
+      width: 60px;
+      height: 3px;
+      background: linear-gradient(90deg, {{colors.primary}}, {{colors.accent}});
+      margin: 0 auto 24px;
+      border-radius: 2px;
+    }
+
+    .description {
+      font-size: 22px;
+      color: {{colors.textMuted}};
+      line-height: 1.5;
+      max-width: 700px;
+    }
+
+    .cta-bar {
+      position: absolute;
+      bottom: 60px;
+      left: 80px;
+      right: 80px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand {
+      font-family: '{{fonts.mono}}', monospace;
+      font-size: 14px;
+      color: {{colors.textMuted}};
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .cta {
+      padding: 14px 32px;
+      background: {{colors.primary}};
+      color: {{colors.background}};
+      font-weight: 700;
+      font-size: 16px;
+      border-radius: {{style.borderRadius}};
+    }
+  </style>
+</head>
+<body>
+  <div class="bg"></div>
+  {{#if style.glowEffects}}
+  <div class="glow glow-primary"></div>
+  <div class="glow glow-accent"></div>
+  {{/if}}
+
+  <div class="content">
+    <div class="badge">New Release</div>
+    <h1 class="title">{{product.product_name}}</h1>
+    <div class="divider"></div>
+    <p class="description">{{copy.tagline}}</p>
+  </div>
+
+  <div class="cta-bar">
+    <span class="brand">{{product.brand}}</span>
+    <span class="cta">{{copy.call_to_action}}</span>
+  </div>
+</body>
+</html>
