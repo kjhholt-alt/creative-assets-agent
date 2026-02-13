@@ -126,7 +126,7 @@ Return ONLY valid JSON array (no markdown, no backticks):
     "asset_id": "the-asset-id",
     "prompt": "Detailed generation prompt, be very specific about composition, colors, lighting, style. Include the theme modifiers naturally. DO NOT include any text/words in the image — we add text via templates.",
     "negative_prompt": "blurry, low quality, text, watermark, logo, words, letters, distorted",
-    "aspect_ratio": "16:9 or 1:1 or 3:1 matching the asset dimensions",
+    "aspect_ratio": "MUST be one of: 1:1, 16:9, 9:16, 3:2, 2:3, 4:5, 5:4, 3:4, 4:3. Pick the closest match to the asset dimensions.",
     "guidance_scale": 7.5
   }
 ]`;

@@ -20,6 +20,23 @@ export interface GeneratedImage {
 }
 
 export class ReplicateService {
+  // Valid aspect ratios for Flux 1.1 Pro
+  private static VALID_RATIOS = [
+    "1:1", "16:9", "9:16", "3:2", "2:3", "4:5", "5:4", "3:4", "4:3",
+  ] as const;
+
+  // Map of ratio value to label for nearest-match lookup
+  private static RATIO_VALUES: Record<string, number> = {
+    "1:1": 1,
+    "16:9": 16 / 9,
+    "9:16": 9 / 16,
+    "3:2": 3 / 2,
+    "2:3": 2 / 3,
+    "4:5": 4 / 5,
+    "5:4": 5 / 4,
+    "3:4": 3 / 4,
+    "4:3": 4 / 3,
+  };
   private client: Replicate;
   private imageModel: string;
   private upscaleModel: string;
@@ -33,7 +50,36 @@ export class ReplicateService {
   }
 
   /**
-   * Generate images for all prompts, respecting concurrency limits
+   * Map an arbitrary aspect ratio string to the closest valid Flux ratio
+   */
+  private static toValidRatio(ratio: string): string {
+    // If already valid, return as-is
+    if ((ReplicateService.VALID_RATIOS as readonly string[]).includes(ratio)) {
+      return ratio;
+    }
+
+    // Parse the ratio string (e.g. "3:1" -> 3.0)
+    const parts = ratio.split(":");
+    if (parts.length !== 2) return "16:9"; // fallback
+    const value = parseFloat(parts[0]) / parseFloat(parts[1]);
+
+    // Find the closest valid ratio by numeric distance
+    let closest = "16:9";
+    let minDist = Infinity;
+    for (const [label, val] of Object.entries(ReplicateService.RATIO_VALUES)) {
+      const dist = Math.abs(value - val);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = label;
+      }
+    }
+
+    logger.info(`Mapped aspect ratio "${ratio}" → "${closest}"`);
+    return closest;
+  }
+
+  /**
+   * Generate images for all prompts, processing sequentially with delays to respect rate limits
    */
   async generateImages(
     prompts: GeneratedImagePrompt[],
@@ -42,20 +88,19 @@ export class ReplicateService {
     logger.info(`Generating ${prompts.length} images via Replicate`);
     const results: GeneratedImage[] = [];
 
-    // Process in batches to respect rate limits
-    const batches = this.chunk(prompts, this.maxConcurrent);
+    // Process sequentially with delay to avoid rate limiting
+    for (let i = 0; i < prompts.length; i++) {
+      try {
+        const result = await this.generateSingleImage(prompts[i], outputDir);
+        results.push(result);
+      } catch (err) {
+        logger.error(`Image generation failed: ${err}`);
+      }
 
-    for (const batch of batches) {
-      const batchResults = await Promise.allSettled(
-        batch.map((prompt) => this.generateSingleImage(prompt, outputDir))
-      );
-
-      for (const result of batchResults) {
-        if (result.status === "fulfilled") {
-          results.push(result.value);
-        } else {
-          logger.error(`Image generation failed: ${result.reason}`);
-        }
+      // Wait 12s between requests to respect free-tier rate limits (6/min, burst of 1)
+      if (i < prompts.length - 1) {
+        logger.info("Waiting 12s before next image request (rate limit)...");
+        await new Promise((r) => setTimeout(r, 12000));
       }
     }
 
@@ -73,11 +118,12 @@ export class ReplicateService {
     const startTime = Date.now();
 
     try {
+      const validRatio = ReplicateService.toValidRatio(prompt.aspect_ratio);
       const output = await this.client.run(this.imageModel as `${string}/${string}`, {
         input: {
           prompt: prompt.prompt,
           negative_prompt: prompt.negative_prompt,
-          aspect_ratio: prompt.aspect_ratio,
+          aspect_ratio: validRatio,
           guidance_scale: prompt.guidance_scale,
           num_outputs: 1,
           output_format: "png",
@@ -85,12 +131,15 @@ export class ReplicateService {
         },
       });
 
-      // Replicate returns a URL or array of URLs
-      const imageUrl = Array.isArray(output) ? output[0] : output;
+      // Replicate SDK v1.x returns FileOutput objects — extract the URL
+      const raw = Array.isArray(output) ? output[0] : output;
+      const imageUrl = this.extractUrl(raw);
 
-      if (typeof imageUrl !== "string") {
-        throw new Error(`Unexpected Replicate output type: ${typeof imageUrl}`);
+      if (!imageUrl) {
+        throw new Error(`Could not extract URL from Replicate output (type: ${typeof raw})`);
       }
+
+      logger.info(`Image URL extracted: ${imageUrl.slice(0, 80)}...`);
 
       // Download the image
       const response = await fetch(imageUrl);
@@ -137,10 +186,11 @@ export class ReplicateService {
       },
     });
 
-    const imageUrl = Array.isArray(output) ? output[0] : output;
+    const raw = Array.isArray(output) ? output[0] : output;
+    const imageUrl = this.extractUrl(raw);
 
-    if (typeof imageUrl !== "string") {
-      throw new Error("Upscale failed: unexpected output");
+    if (!imageUrl) {
+      throw new Error("Upscale failed: could not extract URL from output");
     }
 
     const response = await fetch(imageUrl);
@@ -168,10 +218,11 @@ export class ReplicateService {
       }
     );
 
-    const imageUrl = Array.isArray(output) ? output[0] : output;
+    const raw = Array.isArray(output) ? output[0] : output;
+    const imageUrl = this.extractUrl(raw);
 
-    if (typeof imageUrl !== "string") {
-      throw new Error("Background removal failed: unexpected output");
+    if (!imageUrl) {
+      throw new Error("Background removal failed: could not extract URL from output");
     }
 
     const response = await fetch(imageUrl);
@@ -179,6 +230,36 @@ export class ReplicateService {
     await writeFile(outputPath, buffer);
 
     return outputPath;
+  }
+
+  /**
+   * Extract a URL string from Replicate SDK output.
+   * The SDK v1.x returns FileOutput objects (ReadableStream subclass) instead of plain strings.
+   */
+  private extractUrl(raw: unknown): string | null {
+    if (!raw) return null;
+
+    // Plain string URL
+    if (typeof raw === "string") return raw;
+
+    // URL object
+    if (raw instanceof URL) return raw.href;
+
+    // FileOutput or object with url/href properties
+    if (typeof raw === "object") {
+      const obj = raw as Record<string, any>;
+
+      // FileOutput.url is a URL object
+      if (obj.url instanceof URL) return obj.url.href;
+      if (typeof obj.url === "string") return obj.url;
+      if (typeof obj.href === "string") return obj.href;
+    }
+
+    // FileOutput.toString() returns the URL — force string coercion
+    const str = "" + raw;
+    if (str.startsWith("http")) return str;
+
+    return null;
   }
 
   private chunk<T>(arr: T[], size: number): T[][] {
